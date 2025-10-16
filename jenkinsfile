@@ -1,0 +1,75 @@
+pipeline {
+    agent any
+    
+    environment {
+        PYTHON = "C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_x64__qbz5n2kfra8p0\\python.exe"
+    }
+    
+    stages{
+        stage("Clonar Monorepo"){
+            steps{
+                git(
+                    url:"https://github.com/manuelledezma687/api-example-postman-fast-api.git",
+                    credentialsId:"token-postman",
+                    branch:"master"
+                    )
+            }
+        }
+        
+        stage("Instalar Dependencias"){
+            steps{
+                bat"""
+                echo Instalando dependencias de Python..
+                "%PYTHON%" -m pip install --upgrade pip
+                "%PYTHON%" -m pip install -r requirements.txt
+                
+                echo Instalando Newman globalmente..
+                npm install -g newman newman-reporter-htmlextra
+                """
+            }
+        }
+        
+        stage("Levantar API Local"){
+            steps{
+                bat"""
+                echo Iniciando API FastAPI...
+                cd /d "%WORKSPACE%"
+                start "" /min cmd /c "\"%PYTHON%\" -m uvicorn main:app --host 127.0.0.1 --port 8000"
+                """
+            }
+        }
+        
+        stage("Ejecutar Pruebas"){
+            steps{
+                bat"""
+                echo Ejecutando Pruebas
+                npx newman run "tests/collection.json" ^
+                    --environment "tests/env.json" ^
+                    --reporters cli,htmlextra ^
+                    --reporter-htmlextra-export "reports/newman-report.html"
+                """
+            }
+        }
+        
+        stage("Publicar Reporte"){
+            steps{
+                publishHTML([
+                    reportName: "Newman Report",
+                    reportDir: "reports",
+                    reportFiles: "newman-report.html",
+                    keepAll: true ,
+                    alwaysLinkToLastBuild: true ,
+                    allowMissing: false
+                    ])
+            }
+        }
+        
+    }
+    post{
+        always{
+            echo "Cerrando FASTAPI y limpiando workspace..."
+            bat 'taskkill /F /IM python.exe /T || exit 0'
+            cleanWs()
+        }
+    }
+}
